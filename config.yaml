@@ -1,0 +1,29 @@
+camera:
+  device_id: 0              # USB camera device ID (0 is usually first camera)
+  resolution:
+    width: 1920             # 4K: 3840x2160, 1080p: 1920x1080  
+    height: 1080
+  fps: 30                   # Frames per second
+  auto_focus: true
+
+gemini:
+  api_key: null             # Set your Gemini API key here or via environment variable
+  model: "gemini-1.5-flash"
+  max_tokens: 150
+  temperature: 0.7
+  
+vision:
+  continuous_mode: false    # Start in continuous mode
+  interval: 5               # Seconds between descriptions
+  first_person: true        # Describe from first-person perspective
+  
+speech:
+  enabled: true             # Send descriptions to speech module
+  speech_api_url: "http://localhost:5001"
+
+api:
+  host: "0.0.0.0"
+  port: 5002
+  
+corpus:
+  main_api_url: "http://localhost:5000"
