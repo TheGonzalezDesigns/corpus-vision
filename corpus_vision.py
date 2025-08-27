@@ -75,12 +75,21 @@ class VisionSystem:
             logging.error("Camera not available")
             return None
         
+        # Flush camera buffer by reading multiple frames to get fresh image
+        # This ensures we get the current live view, not a buffered frame
+        for _ in range(5):
+            ret, frame = self.camera.read()
+            if not ret:
+                logging.error("Failed to capture frame during buffer flush")
+                return None
+        
+        # Final read for the actual image we want
         ret, frame = self.camera.read()
         if ret:
-            logging.info("Image captured successfully")
+            logging.info("Fresh image captured successfully")
             return frame
         else:
-            logging.error("Failed to capture image")
+            logging.error("Failed to capture final image")
             return None
     
     def analyze_image(self, image: np.ndarray) -> Optional[str]:
