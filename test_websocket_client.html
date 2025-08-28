@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Corpus Vision WebSocket Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        .controls { margin-bottom: 20px; padding: 15px; background: #f0f0f0; border-radius: 5px; }
+        .video-container { margin: 20px 0; text-align: center; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .stat-box { padding: 15px; background: #e8f4fd; border-radius: 5px; text-align: center; }
+        .stat-value { font-size: 2em; font-weight: bold; color: #2c5aa0; }
+        .stat-label { font-size: 0.9em; color: #666; margin-top: 5px; }
+        .log { height: 200px; overflow-y: auto; background: #000; color: #0f0; padding: 10px; font-family: monospace; margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .start { background: #4CAF50; color: white; }
+        .stop { background: #f44336; color: white; }
+        .config { background: #2196F3; color: white; }
+        input, select { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 3px; }
+        .frame-preview { max-width: 400px; max-height: 300px; border: 2px solid #ddd; }
+        .triggered { border-color: #ff4444; box-shadow: 0 0 10px rgba(255,68,68,0.5); }
+        .change-indicator { display: inline-block; padding: 5px 10px; border-radius: 15px; margin: 5px; font-weight: bold; }
+        .change-high { background: #ff4444; color: white; }
+        .change-medium { background: #ffaa44; color: white; }
+        .change-low { background: #44ff44; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Corpus Vision - Filtered WebSocket Pipeline</h1>
+        
+        <div class="controls">
+            <h3>🎛️ Stream Controls</h3>
+            <button class="start" onclick="startStream()">Start Filtered Stream</button>
+            <button class="stop" onclick="stopStream()">Stop Stream</button>
+            <button class="config" onclick="getPerformance()">Get Performance Stats</button>
+            
+            <h4>⚙️ Filter Configuration</h4>
+            <label>Change Threshold: <input type="number" id="threshold" value="5.0" step="0.1" min="0.1" max="50.0">%</label>
+            <label>Frame Interval: <input type="number" id="interval" value="33" step="5" min="16" max="100">ms (33ms = 30fps)</label>
+            <label>Filter Enabled: <input type="checkbox" id="filterEnabled" checked></label>
+            <button class="config" onclick="configureFilter()">Update Configuration</button>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-value" id="fps">0</div>
+                <div class="stat-label">Capture FPS</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="triggers">0</div>
+                <div class="stat-label">AI Triggers</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="saved">0</div>
+                <div class="stat-label">API Calls Saved</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="efficiency">0%</div>
+                <div class="stat-label">Filter Efficiency</div>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <h3>📹 Live Frame Preview</h3>
+            <img id="frame" class="frame-preview" alt="Live frame will appear here">
+            <div id="changeIndicator" class="change-indicator change-low">No Change</div>
+        </div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        const socket = io('http://raspberrypi:5002');
+        
+        socket.on('connect', function() {
+            log('✅ Connected to filtered vision WebSocket');
+        });
+        
+        socket.on('disconnect', function() {
+            log('❌ Disconnected from WebSocket');
+        });
+        
+        socket.on('status', function(data) {
+            log('📡 Status: ' + JSON.stringify(data));
+        });
+        
+        socket.on('filtered_frame', function(data) {
+            // Update frame preview
+            document.getElementById('frame').src = 'data:image/jpeg;base64,' + data.frame;
+            
+            // Update change indicator
+            const indicator = document.getElementById('changeIndicator');
+            const changePct = data.change_percentage;
+            
+            if (data.change_detected) {
+                document.getElementById('frame').className = 'frame-preview triggered';
+                indicator.className = 'change-indicator change-high';
+                indicator.textContent = `🚨 CHANGE ${changePct.toFixed(1)}%`;
+            } else if (changePct > 2.0) {
+                document.getElementById('frame').className = 'frame-preview';
+                indicator.className = 'change-indicator change-medium';
+                indicator.textContent = `⚠️ Minor ${changePct.toFixed(1)}%`;
+            } else {
+                document.getElementById('frame').className = 'frame-preview';
+                indicator.className = 'change-indicator change-low';
+                indicator.textContent = `✅ Stable ${changePct.toFixed(1)}%`;
+            }
+        });
+        
+        socket.on('ai_triggered', function(data) {
+            log('🧠 AI Analysis: ' + data.description);
+        });
+        
+        socket.on('performance_stats', function(stats) {
+            document.getElementById('fps').textContent = stats.capture_fps || 0;
+            document.getElementById('triggers').textContent = stats.ai_triggers || 0;
+            document.getElementById('saved').textContent = stats.ai_calls_saved || 0;
+            
+            const efficiency = stats.ai_calls_saved && stats.frames_processed ? 
+                ((stats.ai_calls_saved / stats.frames_processed) * 100) : 0;
+            document.getElementById('efficiency').textContent = efficiency.toFixed(1) + '%';
+            
+            log('📊 Performance: ' + JSON.stringify(stats));
+        });
+        
+        function startStream() {
+            const config = {
+                frame_interval_ms: parseInt(document.getElementById('interval').value),
+                change_threshold: parseFloat(document.getElementById('threshold').value),
+                filter_enabled: document.getElementById('filterEnabled').checked
+            };
+            socket.emit('start_filtered_stream', config);
+            log('🚀 Starting filtered stream with config: ' + JSON.stringify(config));
+        }
+        
+        function stopStream() {
+            socket.emit('stop_stream');
+            log('🛑 Stopping stream');
+        }
+        
+        function configureFilter() {
+            const config = {
+                change_threshold: parseFloat(document.getElementById('threshold').value),
+                filter_enabled: document.getElementById('filterEnabled').checked,
+                frame_interval_ms: parseInt(document.getElementById('interval').value)
+            };
+            socket.emit('configure_filter', config);
+            log('⚙️ Configuring filter: ' + JSON.stringify(config));
+        }
+        
+        function getPerformance() {
+            socket.emit('get_performance');
+        }
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        // Auto-refresh performance stats
+        setInterval(getPerformance, 2000);
+    </script>
+</body>
+</html>
