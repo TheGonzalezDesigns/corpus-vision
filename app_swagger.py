@@ -10,14 +10,18 @@ import time
 import threading
 import queue
 from corpus_vision import VisionSystem
+from waldo_vision_logger import waldo_logger
+from continuous_waldo_monitor import waldo_monitor
 
 # Import Rust filter
 try:
     from frame_change_detector import FrameChangeDetector
     FILTER_AVAILABLE = True
+    waldo_logger.logger.info("🦀 Waldo Vision filter available")
 except ImportError:
     logging.warning("Rust filter not available. Build with: cd ../../filters/frame-change-detector && ./build.sh")
     FILTER_AVAILABLE = False
+    waldo_logger.logger.info("❌ Waldo Vision filter not available")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'corpus-vision-api'
@@ -66,9 +70,9 @@ class StreamingManager:
     def initialize_filter(self):
         if FILTER_AVAILABLE:
             self.filter = FrameChangeDetector(
-                buffer_duration_ms=100,
-                change_threshold=self.config['change_threshold'],
-                frame_interval_ms=self.config['frame_interval_ms']
+                100,  # buffer_duration_ms
+                self.config['change_threshold'],  # change_threshold
+                self.config['frame_interval_ms']  # frame_interval_ms
             )
             return True
         return False
@@ -301,6 +305,26 @@ class Config(Resource):
         
         return {"status": "success", "message": "Configuration updated"}
 
+@api.route('/describe_filtered')
+class DescribeFiltered(Resource):
+    @api.response(200, 'Success', describe_response)
+    @api.response(500, 'Internal Server Error', error_response)
+    def get(self):
+        """Get AI description using Waldo Vision intelligent filtering"""
+        if not vision:
+            return {"error": "Vision system not initialized"}, 500
+        
+        # Use Waldo Vision filter if available
+        filter_obj = streaming.filter if streaming.filter else None
+        description = vision.get_filtered_view_description(filter_obj)
+        
+        return {
+            "status": "success" if description else "no_trigger",
+            "description": description or "No significant change detected - API call saved",
+            "filter_used": filter_obj is not None,
+            "waldo_vision_active": FILTER_AVAILABLE and streaming.filter is not None
+        }
+
 @api.route('/stream/config')
 class StreamConfig(Resource):
     @api.expect(stream_config_model)
@@ -441,6 +465,58 @@ class FilterInfo(Resource):
                 filter_status["config_error"] = str(e)
         
         return filter_status
+
+@api.route('/monitor/start')
+class MonitorStart(Resource):
+    @api.response(200, 'Success', success_response)
+    @api.response(500, 'Internal Server Error', error_response)
+    def post(self):
+        """Start continuous Waldo Vision monitoring (event-driven, no intervals!)"""
+        success = waldo_monitor.start_monitoring(vision)  # Pass shared vision system
+        
+        if success:
+            return {
+                "status": "success",
+                "message": "Continuous Waldo Vision monitoring started",
+                "mode": "event_driven",
+                "capture_rate": "30fps",
+                "log_file": "/home/nerostar/Projects/corpus/waldo_vision.log",
+                "monitor_command": "tail -f /home/nerostar/Projects/corpus/waldo_vision.log"
+            }
+        else:
+            return {"error": "Failed to start monitoring"}, 500
+
+@api.route('/monitor/stop')
+class MonitorStop(Resource):
+    @api.response(200, 'Success', success_response)
+    @api.response(500, 'Internal Server Error', error_response)
+    def post(self):
+        """Stop continuous Waldo Vision monitoring"""
+        success = waldo_monitor.stop_monitoring()
+        
+        if success:
+            return {"status": "success", "message": "Continuous monitoring stopped"}
+        else:
+            return {"error": "Monitoring was not active"}, 500
+
+@api.route('/monitor/status')
+class MonitorStatus(Resource):
+    @api.response(200, 'Success')
+    def get(self):
+        """Get continuous monitoring status and performance metrics"""
+        status = waldo_monitor.get_status()
+        
+        return {
+            "continuous_monitoring": status,
+            "description": "Event-driven vision monitoring with Waldo Vision intelligence",
+            "how_it_works": [
+                "Captures frames continuously at 30fps",
+                "Every frame processed through Waldo Vision filter", 
+                "Auto-triggers Gemini+Speech only on significant scene changes",
+                "Respects intelligent cooldowns (Volatile=1s, Disturbed=0.25s)"
+            ],
+            "log_monitoring": "tail -f /home/nerostar/Projects/corpus/waldo_vision.log"
+        }
 
 @api.route('/camera/config') 
 class CameraConfig(Resource):

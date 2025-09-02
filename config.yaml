@@ -1,5 +1,5 @@
 camera:
-  device_id: 0              # USB camera device ID (0 is usually first camera)
+  device_id: 1              # USB camera device ID (BRIO detected at device 1)
   resolution:
     width: 1920             # 4K: 3840x2160, 1080p: 1920x1080  
     height: 1080

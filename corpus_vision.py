@@ -149,6 +149,62 @@ class VisionSystem:
         
         return description
     
+    def get_filtered_view_description(self, filter_obj=None) -> Optional[str]:
+        """Get description using Waldo Vision filter to determine if analysis is needed"""
+        from waldo_vision_logger import waldo_logger
+        
+        # Capture frame
+        image = self.capture_image()
+        if image is None:
+            waldo_logger.logger.info("❌ Frame capture failed")
+            return None
+        
+        # Use Waldo Vision filter if available
+        if filter_obj:
+            try:
+                # Convert frame to base64 for filter
+                _, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                frame_b64 = base64.b64encode(buffer).decode('utf-8')
+                
+                # Process through Waldo Vision
+                timestamp_ms = int(time.time() * 1000)
+                should_trigger, confidence, tracked_objects = filter_obj.process_frame(frame_b64, timestamp_ms)
+                
+                # Log Waldo Vision decision
+                waldo_logger.log_frame_analysis(
+                    should_trigger=should_trigger,
+                    confidence=confidence, 
+                    tracked_objects=tracked_objects,
+                    scene_state="Active",  # Would need to get actual state from filter
+                    cooldown_remaining=0.0  # Would need to get from filter
+                )
+                
+                # Only proceed with AI analysis if Waldo Vision says so
+                if should_trigger:
+                    waldo_logger.logger.info(f"🧠 Triggering Gemini analysis (confidence: {confidence:.1f}%)")
+                    description = self.analyze_image(image)
+                    
+                    if description:
+                        waldo_logger.logger.info(f"🗣️ Speaking: {description[:50]}...")
+                        if self.config['speech']['enabled']:
+                            self.speak_description(description)
+                        return description
+                else:
+                    waldo_logger.logger.info(f"⏸️ No trigger - saving API call (confidence: {confidence:.1f}%)")
+                    return None
+                    
+            except Exception as e:
+                waldo_logger.logger.error(f"❌ Filter error: {e}")
+                # Fall back to normal analysis
+                pass
+        
+        # Fallback to normal analysis if no filter
+        description = self.analyze_image(image)
+        if description and self.config['speech']['enabled']:
+            self.speak_description(description)
+        
+        return description
+    
     def _continuous_vision_loop(self):
         while self.continuous_running:
             try:
