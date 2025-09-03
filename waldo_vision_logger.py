@@ -26,6 +26,7 @@
 # - No log compression or archival for long-term storage
 
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import json
 import time
 from datetime import datetime
@@ -41,15 +42,12 @@ class WaldoVisionLogger:
         # Remove existing handlers to avoid duplicates
         self.logger.handlers.clear()
         
-        # Create file handler with custom format
-        file_handler = logging.FileHandler(log_file)
+        # Create rotating file handler with daily rotation and 7 backups
+        file_handler = TimedRotatingFileHandler(log_file, when='midnight', interval=1, backupCount=7, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
-        
-        # Custom format for real-time monitoring
-        formatter = logging.Formatter(
-            '%(asctime)s | %(message)s',
-            datefmt='%H:%M:%S.%f'
-        )
+
+        # Correct timestamp formatting with milliseconds (logging doesn't support %f)
+        formatter = logging.Formatter('%(asctime)s.%(msecs)03d | %(message)s', datefmt='%H:%M:%S')
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
         
