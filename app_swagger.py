@@ -29,6 +29,19 @@ app.config['SECRET_KEY'] = 'corpus-vision-api'
 # Initialize SocketIO for WebSocket support
 socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=60, ping_interval=25)
 
+# Attach Waldo logger to SocketIO for real-time log streaming
+try:
+    waldo_logger.attach_socketio(socketio)
+except Exception as e:
+    logging.warning(f'Could not attach Waldo logger to SocketIO: {e}')
+
+@socketio.on('connect', namespace='/waldo')
+def waldo_connect():
+    try:
+        emit('waldo_log', {'message': 'Waldo log stream connected', 'level': 'INFO', 'asctime': 'now'})
+    except Exception:
+        pass
+
 api = Api(app,
     version='1.0', 
     title='Corpus Vision API',
