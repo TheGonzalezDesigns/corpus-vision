@@ -33,6 +33,10 @@ import threading
 import logging
 from corpus_vision import VisionSystem
 from waldo_vision_logger import waldo_logger
+try:
+    from ws_log_server import hub as ws_hub
+except Exception:
+    ws_hub = None
 
 try:
     from frame_change_detector import FrameChangeDetector
@@ -52,6 +56,12 @@ class ContinuousWaldoMonitor:
             'api_saves': 0,
             'start_time': None
         }
+        # Aggregation window state
+        self._agg_active = False
+        self._agg_start_ts = 0.0
+        self._agg_last_trigger_ts = 0.0
+        self._agg_frames_b64 = []
+        self._agg_max_duration = 4.0  # seconds
         
     def initialize(self, shared_vision_system):
         """Initialize with shared vision system to avoid camera conflicts"""
@@ -138,18 +148,45 @@ class ContinuousWaldoMonitor:
                             # If Waldo Vision says trigger, do full AI analysis
                             if should_trigger:
                                 self.stats['triggers'] += 1
-                                waldo_logger.logger.info(f"🧠 AUTO-TRIGGERING Gemini analysis (confidence: {confidence:.1f}%)")
-                                
-                                # Get AI description
-                                description = self.vision.analyze_image(frame)
-                                if description:
-                                    waldo_logger.logger.info(f"🗣️ AUTO-SPEAKING: {description[:60]}...")
-                                    
-                                    # Send to speech
-                                    if self.vision.config['speech']['enabled']:
-                                        self.vision.speak_description(description)
+                                if not self._agg_active:
+                                    self._agg_active = True
+                                    self._agg_start_ts = current_time
+                                    self._agg_frames_b64 = []
+                                self._agg_last_trigger_ts = current_time
+                                self._agg_frames_b64.append(frame_b64)
                             else:
                                 self.stats['api_saves'] += 1
+
+                            if self._agg_active:
+                                duration = current_time - self._agg_start_ts
+                                triggers_quiet = (current_time - self._agg_last_trigger_ts) > 0.25
+                                timed_out = duration >= self._agg_max_duration
+                                if (not should_trigger and triggers_quiet) or timed_out:
+                                    frames = self._agg_frames_b64[:]
+                                    count = len(frames)
+                                    window_ms = int(duration * 1000)
+                                    waldo_logger.logger.info(f"🧩 EVENT WINDOW | frames={count} | duration={duration:.2f}s | confidence≈{confidence:.1f}%")
+                                    try:
+                                        if ws_hub:
+                                            ws_hub.broadcast({'type':'waldo_event','frames':count,'duration_ms':window_ms,'ts':int(current_time*1000)})
+                                    except Exception:
+                                        pass
+                                    description = None
+                                    try:
+                                        if frames:
+                                            import base64, numpy as np
+                                            import cv2 as _cv
+                                            data = base64.b64decode(frames[-1].split(',')[-1])
+                                            npbuf = np.frombuffer(data, dtype=np.uint8)
+                                            img = _cv.imdecode(npbuf, _cv.IMREAD_COLOR)
+                                            description = self.vision.analyze_image(img)
+                                    except Exception as e:
+                                        waldo_logger.logger.error(f"Aggregation analysis failed: {e}")
+                                    if description and self.vision.config['speech']['enabled']:
+                                        waldo_logger.logger.info(f"🗣️ SPEAK (summary): {description[:80]}...")
+                                        self.vision.speak_description(description)
+                                    self._agg_active = False
+                                    self._agg_frames_b64 = []
                     else:
                         # Log failed frame capture occasionally  
                         if self.stats['frames_processed'] % 30 == 0:
