@@ -59,16 +59,22 @@ class WaldoLogWebSocketHub:
         def runner():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-            self.server = self.loop.run_until_complete(
-                websockets.serve(self._handler, "0.0.0.0", self.port, ping_interval=25, ping_timeout=60)
-            )
-            logging.info(f"Waldo raw WebSocket log server listening on ws://0.0.0.0:{self.port}")
+            async def main():
+                self.server = await websockets.serve(self._handler, "0.0.0.0", self.port, ping_interval=25, ping_timeout=60)
+                logging.info(f"Waldo raw WebSocket log server listening on ws://0.0.0.0:{self.port}")
+                await asyncio.Future()
+
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
             try:
-                self.loop.run_forever()
+                self.loop.run_until_complete(main())
             finally:
-                self.server.close()
-                self.loop.run_until_complete(self.server.wait_closed())
-                self.loop.close()
+                try:
+                    if self.server:
+                        self.server.close()
+                        self.loop.run_until_complete(self.server.wait_closed())
+                finally:
+                    self.loop.close()
 
         self.thread = threading.Thread(target=runner, daemon=True)
         self.thread.start()
