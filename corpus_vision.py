@@ -73,7 +73,8 @@ class VisionSystem:
     def _initialize_camera(self):
         try:
             camera_config = self.config['camera']
-            self.camera = cv2.VideoCapture(camera_config['device_id'])
+            # Try configured device first
+            self.camera = cv2.VideoCapture(camera_config.get('device_id', 0))
             
             # Set camera properties
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, camera_config['resolution']['width'])
@@ -83,8 +84,27 @@ class VisionSystem:
             if self.camera.isOpened():
                 logging.info("Camera initialized successfully")
             else:
-                logging.error("Failed to open camera")
+                logging.warning("Configured camera not available. Attempting auto-detection...")
+                if self.camera:
+                    try:
+                        self.camera.release()
+                    except Exception:
+                        pass
                 self.camera = None
+                # Auto-detect camera device 0-5
+                for dev_id in range(0, 6):
+                    cam = cv2.VideoCapture(dev_id)
+                    if cam.isOpened():
+                        # Apply same settings
+                        cam.set(cv2.CAP_PROP_FRAME_WIDTH, camera_config['resolution']['width'])
+                        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_config['resolution']['height'])
+                        cam.set(cv2.CAP_PROP_FPS, camera_config['fps'])
+                        self.camera = cam
+                        self.config['camera']['device_id'] = dev_id
+                        logging.info(f"Auto-selected camera device_id={dev_id}")
+                        break
+                if not self.camera:
+                    logging.error("Failed to open any camera device (0-5)")
         except Exception as e:
             logging.error(f"Camera initialization failed: {e}")
             self.camera = None
