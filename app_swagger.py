@@ -24,6 +24,7 @@ except ImportError:
     waldo_logger.logger.info("❌ Waldo Vision filter not available")
 
 app = Flask(__name__)
+from ws_log_server import hub as ws_hub
 app.config['SECRET_KEY'] = 'corpus-vision-api'
 
 # Initialize SocketIO for WebSocket support
@@ -50,6 +51,11 @@ api = Api(app,
 )
 
 logging.basicConfig(level=logging.INFO)
+# Start raw WebSocket log server on dedicated port (default 5010)
+try:
+    ws_hub.start()
+except Exception as e:
+    logging.warning(f'Raw WS log server not started: {e}')
 
 # Initialize Vision System
 try:
@@ -651,7 +657,8 @@ if __name__ == '__main__':
             debug=False,
             allow_unsafe_werkzeug=True
         )
-    finally:
+
+                finally:
         if vision:
             vision.cleanup()
         if streaming.streaming:

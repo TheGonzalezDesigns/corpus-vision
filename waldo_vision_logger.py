@@ -30,6 +30,10 @@ from logging.handlers import TimedRotatingFileHandler
 import json
 import time
 from datetime import datetime
+try:
+    from ws_log_server import hub as ws_hub
+except Exception:
+    ws_hub = None
 
 class WaldoVisionLogger:
     def __init__(self, log_file="/home/nerostar/Projects/corpus/waldo_vision.log"):
@@ -95,6 +99,19 @@ class WaldoVisionLogger:
             status_line += f" | Cooldown: {cooldown_remaining:.2f}s"
         
         self.logger.info(status_line)
+        try:
+            if ws_hub:
+                ws_hub.broadcast({
+                    "type": "waldo_log",
+                    "should_trigger": should_trigger,
+                    "confidence": confidence,
+                    "tracked_objects": tracked_objects,
+                    "scene_state": scene_state,
+                    "cooldown_remaining": cooldown_remaining,
+                    "ts": datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                })
+        except Exception:
+            pass
         
         # Log significant events with more detail
         if should_trigger and confidence > 90:
@@ -103,20 +120,63 @@ class WaldoVisionLogger:
     def log_scene_transition(self, old_state, new_state):
         """Log scene state changes"""
         self.logger.info(f"🔄 STATE CHANGE: {old_state} → {new_state}")
+        try:
+            if ws_hub:
+                ws_hub.broadcast({
+                    "type": "waldo_state",
+                    "old": old_state,
+                    "new": new_state,
+                    "ts": datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                })
+        except Exception:
+            pass
     
     def log_api_call(self, api_type, duration_ms, success=True):
         """Log API calls and performance"""
         status = "✅" if success else "❌"
         self.logger.info(f"{status} {api_type} API | Duration: {duration_ms}ms")
+        try:
+            if ws_hub:
+                ws_hub.broadcast({
+                    "type": "api",
+                    "api": api_type,
+                    "success": success,
+                    "duration_ms": duration_ms,
+                    "ts": datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                })
+        except Exception:
+            pass
     
     def log_cooldown_skip(self, scene_state, time_remaining):
         """Log when triggers are skipped due to cooldown"""
         self.logger.info(f"⏳ COOLDOWN SKIP | {scene_state} | Remaining: {time_remaining:.2f}s")
+        try:
+            if ws_hub:
+                ws_hub.broadcast({
+                    "type": "cooldown",
+                    "scene_state": scene_state,
+                    "remaining": time_remaining,
+                    "ts": datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                })
+        except Exception:
+            pass
     
     def log_pipeline_stats(self, frames_processed, triggers, api_saves):
         """Log periodic pipeline statistics"""
         efficiency = (api_saves / max(frames_processed, 1)) * 100
         self.logger.info(f"📊 STATS | Frames: {frames_processed} | Triggers: {triggers} | Efficiency: {efficiency:.1f}%")
+        try:
+            if ws_hub:
+                ws_hub.broadcast({
+                    "type": "stats",
+                    "frames": frames_processed,
+                    "triggers": triggers,
+                    "api_saves": api_saves,
+                    "efficiency": efficiency,
+                    "ts": datetime.now().strftime('%H:%M:%S.%f')[:-3]
+                })
+        except Exception:
+            pass
 
 # Global logger instance
 waldo_logger = WaldoVisionLogger()
