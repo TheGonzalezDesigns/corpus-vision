@@ -12,6 +12,7 @@ import queue
 from corpus_vision import VisionSystem
 from waldo_vision_logger import waldo_logger
 from continuous_waldo_monitor import waldo_monitor
+from event_store import store as event_store
 
 # Import Rust filter
 try:
@@ -155,6 +156,21 @@ status_response = api.model('StatusResponse', {
     'gemini_available': fields.Boolean(description='Gemini AI availability'),
     'continuous_running': fields.Boolean(description='Continuous vision status'),
     'speech_enabled': fields.Boolean(description='Speech integration status')
+})
+
+# Event models
+event_model = api.model('VisionEvent', {
+    'ts_iso': fields.String,
+    'ts_ms': fields.Integer,
+    'duration_ms': fields.Integer,
+    'frames_count': fields.Integer,
+    'confidence_hint': fields.Float,
+    'description': fields.String,
+})
+
+events_response = api.model('EventsResponse', {
+    'count': fields.Integer,
+    'events': fields.List(fields.Nested(event_model))
 })
 
 capture_response = api.model('CaptureResponse', {
@@ -638,6 +654,48 @@ class CameraStatus(Resource):
             
         except Exception as e:
             return {"error": f"Failed to get camera status: {str(e)}"}, 500
+
+
+@api.route('/events/recent')
+class EventsRecent(Resource):
+    @api.doc(params={'limit': 'Maximum events to return (default 20)'})
+    @api.response(200, 'Success', events_response)
+    def get(self):
+        try:
+            limit = int(request.args.get('limit', 20))
+        except Exception:
+            limit = 20
+        evs = event_store.recent(limit=limit)
+        return {'count': len(evs), 'events': evs}
+
+@api.route('/events/range')
+class EventsRange(Resource):
+    @api.doc(params={'from': 'ISO8601 start', 'to': 'ISO8601 end'})
+    @api.response(200, 'Success', events_response)
+    def get(self):
+        start = request.args.get('from')
+        end = request.args.get('to')
+        if not start or not end:
+            return {'count': 0, 'events': []}
+        evs = event_store.range(start, end)
+        return {'count': len(evs), 'events': evs}
+
+@api.route('/events/context')
+class EventsContext(Resource):
+    @api.doc(params={'window': 'Window minutes (default 15)', 'limit': 'Max events (default 20)'})
+    @api.response(200, 'Success')
+    def get(self):
+        try:
+            window = int(request.args.get('window', 15))
+        except Exception:
+            window = 15
+        try:
+            limit = int(request.args.get('limit', 20))
+        except Exception:
+            limit = 20
+        ctx = event_store.context(window_minutes=window, limit=limit)
+        return ctx
+
 
 if __name__ == '__main__':
     # Load config for server settings
