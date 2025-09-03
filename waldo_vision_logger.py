@@ -1,3 +1,30 @@
+# THEORY:
+# This module provides specialized logging infrastructure for the Waldo Vision
+# intelligent filtering system. It creates human-readable, real-time monitoring
+# of the AI companion's decision-making process, making the "black box" of
+# computer vision transparent and debuggable.
+#
+# The logger serves multiple critical functions:
+# - Performance monitoring (frames processed, API calls saved)
+# - Decision transparency (why did it trigger or not trigger?)
+# - Scene state tracking (Stable → Volatile → Disturbed transitions)
+# - Cost optimization verification (efficiency metrics)
+# - Development debugging (cooldown timers, confidence scores)
+#
+# By providing detailed logs of every Waldo Vision decision, users can
+# understand and tune the AI companion's behavior, building trust through
+# transparency in the intelligent filtering process.
+
+# CAVEATS & WARNINGS:
+# - Log file path is hardcoded (/home/nerostar/Projects/corpus/waldo_vision.log)
+# - No log rotation (file grows indefinitely with continuous monitoring)
+# - Timestamp formatting uses deprecated %f that doesn't work (shows %f literally)
+# - No log level configuration (always INFO level)
+# - Multiple logger instances may cause duplicate entries
+# - No structured logging (JSON) for programmatic analysis
+# - Performance impact not measured (logging in tight monitoring loop)
+# - No log compression or archival for long-term storage
+
 import logging
 import json
 import time
