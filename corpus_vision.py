@@ -1,3 +1,36 @@
+# THEORY:
+# This module represents the core "eyes" capability of the Corpus AI companion.
+# It bridges physical camera hardware with advanced AI vision analysis through
+# Google's Gemini AI, implementing both single-shot analysis and continuous
+# monitoring workflows.
+#
+# The module embodies the "sensor-to-intelligence" pipeline, transforming raw
+# camera pixels into meaningful, first-person descriptions that the AI companion
+# can speak about its environment. It handles the critical camera buffer
+# management needed for live image capture while providing both REST API
+# endpoints and integration points for intelligent filtering systems.
+#
+# Key Responsibilities:
+# - Camera hardware abstraction and configuration
+# - Image capture with buffer flushing for live feeds
+# - Gemini AI integration for scene understanding
+# - Speech API integration for autonomous descriptions
+# - Support for both filtered (Waldo Vision) and direct analysis modes
+#
+# This module is the foundation that gives the Corpus AI companion the
+# ability to "see" and understand its environment with human-like perception.
+
+# CAVEATS & WARNINGS:
+# - Camera device IDs are hardcoded in config (may change after USB reconnection)
+# - Buffer flushing (5 frames) adds significant latency to single captures
+# - Gemini API key required in environment (GEMINI_API_KEY) - fails without it
+# - No camera reconnection logic if device becomes unavailable during operation
+# - Speech integration assumes localhost:5001 (hardcoded, not configurable)
+# - Continuous vision mode not integrated with Waldo Vision (legacy implementation)
+# - No image quality validation before sending to Gemini (may waste API calls)
+# - Camera configuration changes require service restart
+# - First-person description prompts not customizable via API
+
 import cv2
 import yaml
 import logging
