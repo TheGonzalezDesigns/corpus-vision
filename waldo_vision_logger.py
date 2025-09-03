@@ -54,6 +54,29 @@ class WaldoVisionLogger:
         # Log startup
         self.logger.info("🔥 Waldo Vision monitoring started")
         self.logger.info("=" * 60)
+
+    def attach_socketio(self, socketio, namespace: str = '/waldo'):
+        """Attach a SocketIO instance for real-time log emission."""
+        self._socketio = socketio
+        self._namespace = namespace
+        class SocketIOHandler(logging.Handler):
+            def __init__(self, outer):
+                super().__init__()
+                self.outer = outer
+            def emit(self, record):
+                try:
+                    if self.outer._socketio:
+                        self.outer._socketio.emit('waldo_log', {
+                            'message': record.getMessage(),
+                            'level': record.levelname,
+                            'asctime': self.formatTime(record, datefmt='%H:%M:%S.%f')[:-3],
+                        }, namespace=self.outer._namespace)
+                except Exception:
+                    pass
+        s_handler = SocketIOHandler(self)
+        s_handler.setLevel(logging.INFO)
+        s_handler.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d | %(message)s', datefmt='%H:%M:%S'))
+        self.logger.addHandler(s_handler)
     
     def log_frame_analysis(self, should_trigger, confidence, tracked_objects, scene_state="Unknown", cooldown_remaining=0.0):
         """Log Waldo Vision frame analysis results"""
