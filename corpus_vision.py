@@ -44,6 +44,7 @@ import numpy as np
 import google.generativeai as genai
 import requests
 import io
+from provider_router import VisionRouter
 
 class VisionSystem:
     def __init__(self, config_path: str = "config.yaml"):
@@ -51,6 +52,8 @@ class VisionSystem:
         self.camera = None
         self.continuous_thread = None
         self.continuous_running = False
+        # Ensure model attribute always exists to avoid AttributeError
+        self.model = None
         self._initialize_camera()
         self._initialize_gemini()
         
@@ -114,6 +117,7 @@ class VisionSystem:
             api_key = self.config['gemini'].get('api_key') or os.environ.get('GEMINI_API_KEY')
             if not api_key:
                 logging.error("Gemini API key not found in config or environment")
+                self.model = None
                 return
                 
             genai.configure(api_key=api_key)
@@ -146,35 +150,43 @@ class VisionSystem:
             return None
     
     def analyze_image(self, image: np.ndarray) -> Optional[str]:
-        if not self.model:
-            logging.error("Gemini model not available")
-            return None
-        
+        # Convert OpenCV image to PIL
         try:
-            # Convert OpenCV image to PIL format
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_image)
-            
-            # Create prompt for first-person perspective
-            if self.config['vision']['first_person']:
-                prompt = ("Describe what you see in this image from a first-person perspective, "
-                         "as if you are an AI companion looking through your camera. "
-                         "Start with 'I can see' or 'I notice' and describe the scene naturally. "
-                         "Keep it concise, around 1-2 sentences.")
-            else:
-                prompt = "Describe what you see in this image concisely."
-            
-            # Generate description
-            response = self.model.generate_content([prompt, pil_image])
-            description = response.text.strip()
-            
-            logging.info(f"Generated description: {description[:50]}...")
-            return description
-            
         except Exception as e:
-            logging.error(f"Image analysis failed: {e}")
+            logging.error(f"Image conversion failed: {e}")
             return None
-    
+
+        if self.config['vision']['first_person']:
+            prompt = ("Describe what you see in this image from a first-person perspective, "
+                      "as if you are an AI companion looking through your camera. "
+                      "Start with 'I can see' or 'I notice' and describe the scene naturally. "
+                      "Keep it concise, around 1-2 sentences.")
+        else:
+            prompt = "Describe what you see in this image concisely."
+
+        # Use router with priority order (env VISION_PROVIDER_ORDER)
+        try:
+            router = getattr(self, 'vision_router', None)
+            if router is None:
+                router = VisionRouter()
+                self.vision_router = router
+            desc = router.analyze(pil_image, prompt)
+            if desc:
+                return desc
+        except Exception as e:
+            logging.warning(f"Vision router failed: {e}")
+
+        # Fallback to Gemini direct if available
+        try:
+            if self.model is not None:
+                resp = self.model.generate_content([prompt, pil_image])
+                return (getattr(resp, 'text', '') or '').strip()
+        except Exception as e:
+            logging.error(f"Gemini fallback failed: {e}")
+        return None
+
     def speak_description(self, description: str) -> bool:
         if not self.config['speech']['enabled']:
             return False
