@@ -31,8 +31,10 @@ import base64
 import time
 import threading
 import logging
+from datetime import datetime
 from corpus_vision import VisionSystem
 from waldo_vision_logger import waldo_logger
+from event_store import store as event_store
 try:
     from ws_log_server import hub as ws_hub
 except Exception:
@@ -182,6 +184,20 @@ class ContinuousWaldoMonitor:
                                             description = self.vision.analyze_image(img)
                                     except Exception as e:
                                         waldo_logger.logger.error(f"Aggregation analysis failed: {e}")
+                                    # Persist event to JSONL store
+                                    try:
+                                        event_store.append({
+                                            'type': 'waldo_event',
+                                            'ts_ms': int(self._agg_start_ts * 1000),
+                                            'ts_iso': datetime.utcfromtimestamp(self._agg_start_ts).isoformat() + 'Z',
+                                            'duration_ms': window_ms,
+                                            'frames_count': count,
+                                            'confidence_hint': round(confidence, 1),
+                                            'description': description,
+                                            'source': 'waldo_monitor'
+                                        })
+                                    except Exception as e:
+                                        waldo_logger.logger.error(f"Event store append failed: {e}")
                                     if description and self.vision.config['speech']['enabled']:
                                         waldo_logger.logger.info(f"🗣️ SPEAK (summary): {description[:80]}...")
                                         self.vision.speak_description(description)
