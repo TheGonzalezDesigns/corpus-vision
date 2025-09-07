@@ -28,6 +28,7 @@
 
 import cv2
 import base64
+import numpy as np
 import time
 import threading
 import logging
@@ -35,6 +36,8 @@ from datetime import datetime
 from corpus_vision import VisionSystem
 from waldo_vision_logger import waldo_logger
 from event_store import store as event_store
+from ingest_publisher import publisher as ingest_publisher
+import os
 try:
     from ws_log_server import hub as ws_hub
 except Exception:
@@ -63,7 +66,10 @@ class ContinuousWaldoMonitor:
         self._agg_start_ts = 0.0
         self._agg_last_trigger_ts = 0.0
         self._agg_frames_b64 = []
-        self._agg_max_duration = 4.0  # seconds
+        self._agg_max_duration = 5.0  # seconds
+        self._quiet_threshold = 0.5    # seconds
+        self._last_summary_text = None
+        self._last_summary_ts = 0.0
         
     def initialize(self, shared_vision_system):
         """Initialize with shared vision system to avoid camera conflicts"""
@@ -85,6 +91,15 @@ class ContinuousWaldoMonitor:
                     33      # frame_interval_ms (30fps)
                 )
                 waldo_logger.logger.info("🦀 Waldo Vision filter initialized with shared camera")
+                # Optionally start ingest publisher
+                try:
+                    if os.environ.get('INGEST_ENABLED', 'false').lower() in ('1','true','yes'):
+                        w = int(self.vision.camera.get(cv2.CAP_PROP_FRAME_WIDTH)) if self.vision and self.vision.camera else None
+                        h = int(self.vision.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)) if self.vision and self.vision.camera else None
+                        ingest_publisher.set_dims(w, h)
+                        ingest_publisher.start()
+                except Exception as ie:
+                    waldo_logger.logger.error(f"Ingest publisher start failed: {ie}")
                 return True
             else:
                 waldo_logger.logger.error("❌ Waldo Vision filter not available")
@@ -123,8 +138,18 @@ class ContinuousWaldoMonitor:
                             self.stats['frames_processed'] += 1
                             
                             # Convert to base64 for Waldo Vision
-                            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                            frame_b64 = base64.b64encode(buffer).decode('utf-8')
+                            ok_jpg, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                            if not ok_jpg:
+                                continue
+                            jpeg_bytes = buffer.tobytes()
+                            frame_b64 = base64.b64encode(jpeg_bytes).decode('utf-8')
+
+                            # Forward raw JPEG to ingest WS (non-blocking)
+                            try:
+                                ingest_publisher.enqueue(jpeg_bytes)
+                            except Exception as pe:
+                                # Do not disrupt pipeline on ingest errors
+                                pass
                             
                             # Process through Waldo Vision filter with scene state
                             timestamp_ms = int(current_time * 1000)
@@ -174,14 +199,13 @@ class ContinuousWaldoMonitor:
                                     except Exception:
                                         pass
                                     description = None
+                                    structured = None
                                     try:
                                         if frames:
-                                            import base64, numpy as np
-                                            import cv2 as _cv
                                             data = base64.b64decode(frames[-1].split(',')[-1])
                                             npbuf = np.frombuffer(data, dtype=np.uint8)
-                                            img = _cv.imdecode(npbuf, _cv.IMREAD_COLOR)
-                                            description = self.vision.analyze_image(img)
+                                            img = cv2.imdecode(npbuf, cv2.IMREAD_COLOR)
+                                            description, structured = self.vision.analyze_image_structured(img)
                                     except Exception as e:
                                         waldo_logger.logger.error(f"Aggregation analysis failed: {e}")
                                     # Persist event to JSONL store
@@ -194,13 +218,30 @@ class ContinuousWaldoMonitor:
                                             'frames_count': count,
                                             'confidence_hint': round(confidence, 1),
                                             'description': description,
+                                            'observations': (structured or {}).get('observations'),
+                                            'changes': (structured or {}).get('changes'),
+                                            'novel': (structured or {}).get('novel'),
+                                            'salience': (structured or {}).get('salience'),
                                             'source': 'waldo_monitor'
                                         })
                                     except Exception as e:
                                         waldo_logger.logger.error(f"Event store append failed: {e}")
                                     if description and self.vision.config['speech']['enabled']:
-                                        waldo_logger.logger.info(f"🗣️ SPEAK (summary): {description[:80]}...")
-                                        self.vision.speak_description(description)
+                                        try:
+                                            import difflib
+                                            suppress = False
+                                            if self._last_summary_text:
+                                                sim = difflib.SequenceMatcher(None, description.lower(), self._last_summary_text.lower()).ratio()
+                                                if sim >= 0.90 and (current_time - self._last_summary_ts) < 60:
+                                                    suppress = True
+                                                    waldo_logger.logger.info("🛑 Summary suppressed due to repetition (novelty filter)")
+                                            if not suppress:
+                                                waldo_logger.logger.info(f"🗣️ SPEAK (summary): {description[:80]}...")
+                                                self.vision.speak_description(description)
+                                                self._last_summary_text = description
+                                                self._last_summary_ts = current_time
+                                        except Exception as e:
+                                            waldo_logger.logger.error(f"Novelty suppression error: {e}")
                                     self._agg_active = False
                                     self._agg_frames_b64 = []
                     else:
