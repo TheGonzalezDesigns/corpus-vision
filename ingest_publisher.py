@@ -20,6 +20,7 @@ class IngestPublisher:
         self.stop_flag = False
         self.width = None
         self.height = None
+        self.sent_count = 0
 
     def set_dims(self, w: int, h: int):
         self.width = int(w) if w else None
@@ -54,6 +55,8 @@ class IngestPublisher:
                                     continue
                                 try:
                                     await ws.send(frame)
+                                    self.sent_count += 1
+                                    logging.info(f"Ingest: sent frame #{self.sent_count} ({len(frame)} bytes)")
                                 except Exception as se:
                                     logging.warning(f"Ingest send error: {se}")
                                     break
@@ -96,4 +99,3 @@ class IngestPublisher:
 
 
 publisher = IngestPublisher()
-
